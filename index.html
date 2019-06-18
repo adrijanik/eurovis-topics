@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<!-- Adapted from mbostock https://blockbuilder.org/mbostock/7607535 -->
+<style>
+.node {
+  cursor: pointer;
+}
+.node:hover {
+  stroke: #000;
+  stroke-width: 1.5px;
+}
+.label {
+  font: 11px "Helvetica Neue", Helvetica, Arial, sans-serif;
+  text-anchor: middle;
+  text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, -1px 0 0 #fff, 0 -1px 0 #fff;
+}
+.label,
+.node--root,
+.node--leaf {
+  pointer-events: none;
+}
+</style>
+<svg width="960" height="960"></svg>
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script>
+var width = 932, height = 932;
+
+var svg = d3.select("svg"),
+    margin = 20,
+    diameter = +svg.attr("width"),
+    g = svg.append("g").attr("transform", "translate(" + diameter / 2 + "," + diameter / 2 + ")");
+
+var pack = data => d3.pack()
+    .size([width, height])
+    .padding(100)
+    (d3.hierarchy(data)
+    .sum(d => d.data.size)
+    .sort((a, b) => b.data.size - a.data.size))
+
+var format = d3.format(",d")
+
+var color = d3.scaleLinear()
+    .domain([0, 5])
+    .range(["hsl(152,80%,80%)", "hsl(228,30%,40%)"])
+    .interpolate(d3.interpolateHcl)
+
+var stratify = d3.stratify()
+    .parentId(function (d) {
+        return d.parentId;
+    })
+    .id(function (d) {
+        return d.id;
+    });
+
+d3.csv("data.csv").then(function(data) {
+    data.sort(function(x, y){ return d3.ascending(x.size, y.size) })    
+    const stratData = stratify(data);
+  const root = pack(stratData);
+  let focus = root;
+  let view;
+
+  svg = d3.select("svg")
+      .attr("viewBox", `-${width / 2} -${height / 2} ${width} ${height}`)
+      .style("display", "block")
+      .style("margin", "0 -14px")
+      .style("background", "white")//color(0))
+      .style("cursor", "pointer")
+      .on("click", () => zoom(root));
+
+  const node = svg.append("g")
+    .selectAll("circle")
+    .data(root.descendants().slice(1))
+    .join("circle")
+      .attr("fill", d => d.children? color(d.depth): "beige")
+      .attr("pointer-events", d => !d.children ? "none": null)
+      .on("mouseover", function() { d3.select(this).attr("stroke", "#000"); })
+      .on("mouseout", function() { d3.select(this).attr("stroke", null); })
+      .on("click", d => focus !== d && (zoom(d), d3.event.stopPropagation()));
+
+  const label = svg.append("g")
+      .attr("pointer-events", "none")
+      .attr("text-anchor", "middle")
+    .selectAll("text")
+    .data(root.descendants())
+    .join("text")
+      .style("fill-opacity", d => d.parent === root ? 1 : 0)
+      .style("font-weight", "bold")
+      .style("font", d => d.children? "17px sans-serif": "15px sans-serif")
+      .style("display", d => d.parent === root ? "inline" : "none");
+
+  const txt = label
+      .selectAll("tspan")
+      .data(d => d.data.id.replace(/_/g,' ').split(/(?=[A-Z][^A-Z])/g))
+      .join("tspan")
+      .attr("x", 0)
+      .attr("y", (d, i, nodes) => `${i - nodes.length / 2 + 0.8}em`)
+      .text(d => d);
+
+  zoomTo([root.x, root.y, root.r * 2]);
+
+  function zoomTo(v) {
+    const k = width / v[2];
+
+    view = v;
+
+    label.attr("transform", d =>`translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})` );
+    node.attr("transform", d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+    node.attr("r", d => d.children ? d.r * k : 20*k);
+  }
+
+  function zoom(d) {
+    const focus0 = focus;
+
+    focus = d;
+
+    const transition = svg.transition()
+        .duration(d3.event.altKey ? 7500 : 750)
+        .tween("zoom", d => {
+          const i = d3.interpolateZoom(view, [focus.x, focus.y, focus.r * 2]);
+          return t => zoomTo(i(t));
+        });
+
+    label
+      .filter(function(d) { return d.parent === focus || this.style.display === "inline"; })
+      .transition(transition)
+        .style("fill-opacity", d => d.parent === focus ? 1 : 0)
+        .on("start", function(d) { if (d.parent === focus) this.style.display = "inline"; })
+        .on("end", function(d) { if (d.parent !== focus) this.style.display = "none"; });
+  }
+});
+</script>
+
